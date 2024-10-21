@@ -2,3 +2,4 @@ credentials.json
 token.json
 submissions/
 upload_summary.txt
+build/
