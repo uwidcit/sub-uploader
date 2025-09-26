@@ -1,5 +1,6 @@
 credentials.json
 token.json
+config.json
 submissions/
 upload_summary.txt
 build/

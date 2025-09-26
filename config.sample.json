@@ -1,0 +1,30 @@
+{
+  "google_sheets": {
+    "sheet_id": "YOUR_GOOGLE_SHEET_ID_HERE",
+    "sheet_name": "Sheet1",
+    "id_column": "C",
+    "link_column": "L",
+    "start_row": 3
+  },
+  "google_drive": {
+    "folder_id": "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+  },
+  "authentication": {
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/spreadsheets"
+    ],
+    "credentials_file": "credentials.json",
+    "token_file": "token.json"
+  },
+  "output": {
+    "summary_file": "upload_summary.txt"
+  },
+  "upload": {
+    "mime_type": "application/octet-stream",
+    "permissions": {
+      "role": "reader",
+      "type": "anyone"
+    }
+  }
+}
