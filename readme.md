@@ -6,7 +6,9 @@ A desktop application for uploading student submissions to Google Drive and auto
 
 - **Batch Upload**: Upload multiple student submission files to Google Drive
 - **Automatic Linking**: Automatically update Google Sheets with links to uploaded files
-- **File Matching**: Match submission files to student IDs in your gradebook
+- **Student ID & Name Matching**: Match submission files by student ID or first/last name
+- **Link Conflict Prevention**: Skip files that would overwrite existing submission links
+- **Configurable Submissions Path**: Set a default submissions folder path for convenient access
 - **GUI Interface**: User-friendly PyQt5 interface for easy operation
 - **OAuth Authentication**: Secure Google API authentication
 - **Progress Tracking**: Real-time upload progress and logging
@@ -23,9 +25,10 @@ A desktop application for uploading student submissions to Google Drive and auto
 1. Install dependencies: `pip install -r requirements.txt`
 2. Set up Google API credentials (see [Google API Setup](#google-api-setup-and-authentication))
 3. Run: `python app.py`
-4. Fill in your configuration in the GUI - it saves automatically!
-5. Click "Authorize App" to generate your token
-6. Select folder and start uploading
+4. Fill in your configuration in the GUI
+5. Click "Save Configuration" to save your settings
+6. Click "Authorize App" to generate your token
+7. Select folder and start uploading
 
 ### CLI Mode
 1. Copy configuration: `copy config.sample.json config.json`
@@ -83,13 +86,14 @@ The application will generate a `token.json` file automatically when you first a
 
 ## Configuration
 
-The application now uses a unified `config.json` file that automatically synchronizes between the GUI and command-line interfaces.
+The application now uses a `config.json` file that loads into the GUI on startup with manual save functionality.
 
-### Automatic Configuration Sync
+### Configuration Workflow
 
-- **GUI (app.py)**: Automatically loads settings from `config.json` on startup and saves changes in real-time
+- **GUI (app.py)**: Automatically loads settings from `config.json` on startup
+- **Manual Save**: Click "Save Configuration" button to save changes to `config.json`
 - **CLI (uploader.py)**: Reads configuration from `config.json` at runtime
-- **Unified Settings**: Changes made in the GUI are immediately available for CLI usage and vice versa
+- **Unified Settings**: Saved changes from GUI are immediately available for CLI usage
 
 ### Initial Setup
 
@@ -102,10 +106,13 @@ The application now uses a unified `config.json` file that automatically synchro
    Open `config.json` and update the following fields:
    - `google_sheets.sheet_id`: Your Google Sheet ID
    - `google_sheets.sheet_name`: Sheet tab name (e.g., "A2", "Submissions")
-   - `google_sheets.id_column`: Column containing student IDs (e.g., "C")
-   - `google_sheets.link_column`: Column for file links (e.g., "L")
+   - `google_sheets.id_column`: Column containing student IDs (e.g., "A")
+   - `google_sheets.first_name_column`: Column containing first names (e.g., "B")
+   - `google_sheets.last_name_column`: Column containing last names (e.g., "C")
+   - `google_sheets.link_column`: Column for file links (e.g., "N")
    - `google_sheets.start_row`: Data start row (usually 2 or 3)
    - `google_drive.folder_id`: Target Google Drive folder ID
+   - `submissions.folder_path`: Default path to submissions folder (optional)
 
 ### Configuration Structure
 
@@ -114,12 +121,17 @@ The application now uses a unified `config.json` file that automatically synchro
   "google_sheets": {
     "sheet_id": "YOUR_SHEET_ID_HERE",
     "sheet_name": "Sheet1",
-    "id_column": "C",
-    "link_column": "L",
+    "id_column": "A",
+    "first_name_column": "B",
+    "last_name_column": "C",
+    "link_column": "N",
     "start_row": 3
   },
   "google_drive": {
     "folder_id": "YOUR_FOLDER_ID_HERE"
+  },
+  "submissions": {
+    "folder_path": ""
   },
   "authentication": {
     "scopes": [
@@ -151,9 +163,9 @@ python app.py
 ```
 
 **Features**:
-- **Auto-load**: Configuration values are automatically loaded into form fields
-- **Real-time save**: Changes are saved to `config.json` as you type
-- **Visual feedback**: See configuration sync in real-time
+- **Auto-load**: Configuration values are automatically loaded into form fields on startup
+- **Manual save**: Click "Save Configuration" button to save changes to `config.json`
+- **Visual feedback**: See confirmation when configuration is saved successfully
 
 ### Command Line Interface
 
@@ -215,7 +227,7 @@ The executable will be created in the `dist/` folder and can be distributed with
 
 - **"Configuration file not found"**: Copy `config.sample.json` to `config.json`
 - **UI not loading previous settings**: Check that `config.json` is valid JSON
-- **Settings not saving**: Ensure write permissions in the project directory
+- **Settings not saving**: Click "Save Configuration" button and ensure write permissions in the project directory
 
 ### Authentication Issues
 

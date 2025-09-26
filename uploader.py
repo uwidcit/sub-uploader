@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import io
+import re
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -36,10 +37,14 @@ FOLDER_PATH = sys.argv[1] if len(sys.argv) > 1 else None
 SHEET_ID = config['google_sheets']['sheet_id']
 SHEET_NAME = config['google_sheets']['sheet_name']
 ID_COLUMN = config['google_sheets']['id_column']
+FIRST_NAME_COLUMN = config['google_sheets'].get('first_name_column', 'B')
+LAST_NAME_COLUMN = config['google_sheets'].get('last_name_column', 'C')
 LINK_COLUMN = config['google_sheets']['link_column']
 START_ROW = config['google_sheets']['start_row']
 FOLDER_ID = config['google_drive']['folder_id']
 ID_RANGE = f"{SHEET_NAME}!{ID_COLUMN}{START_ROW}:{ID_COLUMN}"
+FIRST_NAME_RANGE = f"{SHEET_NAME}!{FIRST_NAME_COLUMN}{START_ROW}:{FIRST_NAME_COLUMN}"
+LAST_NAME_RANGE = f"{SHEET_NAME}!{LAST_NAME_COLUMN}{START_ROW}:{LAST_NAME_COLUMN}"
 LINK_RANGE = f"{SHEET_NAME}!{LINK_COLUMN}{START_ROW}:{LINK_COLUMN}"
 SCOPES = config['authentication']['scopes']
 CREDENTIALS_FILE = config['authentication']['credentials_file']
@@ -73,6 +78,75 @@ def extract_student_id(filename):
     
     return None
 
+def extract_names(filename):
+    """
+    Extract first and last names from filename.
+    Format: FirstName LastName_SubmissionID_assignsubmission_file_StudentID_COMP1600_A1.pdf
+    Returns tuple (first_name, last_name) or (None, None) if not found.
+    """
+    import re
+    
+    # Pattern to match the beginning of the filename before the first underscore
+    # This captures the "FirstName LastName" part
+    pattern = r'^([^_]+)_\d+_assignsubmission_file_'
+    match = re.search(pattern, filename)
+    
+    if match:
+        full_name = match.group(1).strip()
+        # Split by space and assume first word is first name, rest is last name
+        name_parts = full_name.split()
+        if len(name_parts) >= 2:
+            first_name = name_parts[0]
+            last_name = ' '.join(name_parts[1:])  # Handle multiple last names
+            return (first_name, last_name)
+        elif len(name_parts) == 1:
+            # Only one name provided
+            return (name_parts[0], None)
+    
+    return (None, None)
+
+def normalize_name(name):
+    """
+    Normalize a name for comparison by removing extra spaces, 
+    converting to lowercase, and handling common variations.
+    """
+    if not name:
+        return ""
+    
+    # Convert to lowercase and strip whitespace
+    normalized = name.lower().strip()
+    
+    # Remove extra spaces and hyphens for comparison
+    normalized = re.sub(r'[-\s]+', ' ', normalized)
+    
+    return normalized
+
+def find_match_by_names(first_name, last_name, sheet_first_names, sheet_last_names):
+    """
+    Find a match by comparing first and last names.
+    Returns the index if found, None otherwise.
+    """
+    if not first_name or not sheet_first_names:
+        return None
+        
+    norm_first = normalize_name(first_name)
+    norm_last = normalize_name(last_name) if last_name else ""
+    
+    for i, (sheet_first, sheet_last) in enumerate(zip(sheet_first_names, sheet_last_names)):
+        sheet_first_norm = normalize_name(sheet_first) if sheet_first else ""
+        sheet_last_norm = normalize_name(sheet_last) if sheet_last else ""
+        
+        # Try exact match first
+        if norm_first == sheet_first_norm and norm_last == sheet_last_norm:
+            return i
+            
+        # Try first name + partial last name match
+        if norm_first == sheet_first_norm and norm_last and sheet_last_norm:
+            if norm_last in sheet_last_norm or sheet_last_norm in norm_last:
+                return i
+    
+    return None
+
 def main():
     # Check for folder path
     if not FOLDER_PATH:
@@ -95,9 +169,15 @@ def main():
     drive_service = build('drive', 'v3', credentials=creds)
     sheets_service = build('sheets', 'v4', credentials=creds)
 
-    # Fetch all IDs and Links from the Google Sheet
+    # Fetch all IDs, Names, and Links from the Google Sheet
     result_ids = sheets_service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=ID_RANGE).execute()
     ids = [item[0] for item in result_ids.get('values', []) if item]
+    
+    result_first_names = sheets_service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=FIRST_NAME_RANGE).execute()
+    first_names = [item[0] if item else "" for item in result_first_names.get('values', [])]
+    
+    result_last_names = sheets_service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=LAST_NAME_RANGE).execute()
+    last_names = [item[0] if item else "" for item in result_last_names.get('values', [])]
     
     result_links = sheets_service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=LINK_RANGE).execute()
     links = [item[0] for item in result_links.get('values', []) if item]
@@ -114,27 +194,43 @@ def main():
             # Extract student ID from the new filename format
             file_id = extract_student_id(filename)
             
+            # Extract names from filename
+            first_name, last_name = extract_names(filename)
+            
             # Safe printing for Unicode filenames
             safe_filename = filename.encode('ascii', 'replace').decode('ascii')
-            print(f"Extracted student ID from '{safe_filename}': {file_id}")
+            print(f"Processing file: {safe_filename}")
+            print(f"Extracted student ID: {file_id}")
+            print(f"Extracted names: {first_name} {last_name}")
             
-            if not file_id:
+            row_index = None
+            match_method = ""
+            
+            # First try to match by student ID
+            if file_id and file_id in ids:
+                row_index = ids.index(file_id)
+                match_method = f"student ID {file_id}"
+            
+            # If no student ID match, try name matching
+            elif first_name:
+                name_match_index = find_match_by_names(first_name, last_name, first_names, last_names)
+                if name_match_index is not None:
+                    row_index = name_match_index
+                    match_method = f"name match: {first_name} {last_name}"
+            
+            if row_index is None:
                 skipped_files.append(filename)
-                print(f"No valid student ID found in filename: {safe_filename}")
+                if file_id:
+                    print(f"Student ID {file_id} not found in spreadsheet and no name match found")
+                else:
+                    print(f"No valid student ID found in filename and no name match: {safe_filename}")
                 continue
-            
-            # Check if this student ID exists in the spreadsheet
-            if file_id not in ids:
-                skipped_files.append(filename)
-                print(f"Student ID {file_id} not found in spreadsheet")
-                continue
-            
-            # Get row index for this ID
-            row_index = ids.index(file_id)
 
-            # Check if a link already exists for this ID
-            if row_index < len(links) and links[row_index]:
-                print(f"Link already exists for student ID {file_id}, skipping...")
+            print(f"Matched by {match_method}, row {row_index + START_ROW}")
+
+            # Check if a link already exists for this row
+            if row_index < len(links) and links[row_index].strip():
+                print(f"Link already exists for row {row_index + START_ROW}, skipping...")
                 continue  # Skip uploading if link already exists
 
             try:
