@@ -4,14 +4,16 @@ A desktop application for uploading student submissions to Google Drive and auto
 
 ## Features
 
+- **Intelligent File Matching**: Match submission files by student ID or first/last name from Moodle exports
 - **Batch Upload**: Upload multiple student submission files to Google Drive
-- **Automatic Linking**: Automatically update Google Sheets with links to uploaded files
-- **Student ID & Name Matching**: Match submission files by student ID or first/last name
+- **Automatic Linking**: Automatically update Google Sheets with clickable hyperlinks to uploaded files
 - **Link Conflict Prevention**: Skip files that would overwrite existing submission links
-- **Configurable Submissions Path**: Set a default submissions folder path for convenient access
-- **GUI Interface**: User-friendly PyQt5 interface for easy operation
-- **OAuth Authentication**: Secure Google API authentication
-- **Progress Tracking**: Real-time upload progress and logging
+- **Dual Interface**: User-friendly PyQt5 GUI and powerful command-line interface
+- **Smart Configuration**: Persistent configuration with auto-loading and manual save functionality
+- **Credentials Detection**: Automatic detection of Google API credentials with helpful error messages
+- **Enhanced Authentication**: Visual status indicators and improved OAuth flow
+- **Unicode Support**: Handles international characters in filenames safely
+- **Progress Tracking**: Real-time upload progress with detailed logging and emoji indicators
 
 ## Prerequisites
 
@@ -21,14 +23,17 @@ A desktop application for uploading student submissions to Google Drive and auto
 
 ## Quick Start
 
-### GUI Mode (Recommended for first-time setup)
-1. Install dependencies: `pip install -r requirements.txt`
-2. Set up Google API credentials (see [Google API Setup](#google-api-setup-and-authentication))
-3. Run: `python app.py`
-4. Fill in your configuration in the GUI
-5. Click "Save Configuration" to save your settings
-6. Click "Authorize App" to generate your token
-7. Select folder and start uploading
+### GUI Mode (Recommended)
+1. **Install dependencies**: `pip install -r requirements.txt`
+2. **Set up Google API credentials** (see [Google API Setup](#google-api-setup-and-authentication))
+3. **Run the application**: `python app.py`
+4. **Follow the improved workflow**:
+   - ✅ Configuration auto-loads from `config.json` (if exists)
+   - 🔐 Click "Authorize App" (now at the top) - credentials detection included
+   - ⚙️ Fill/modify configuration fields as needed
+   - 📁 Use "Select Folder" button next to submissions path field
+   - 💾 Click "Save Configuration" to persist changes
+   - 🚀 Click "Start Upload" to begin processing
 
 ### CLI Mode
 1. Copy configuration: `copy config.sample.json config.json`
@@ -162,10 +167,16 @@ The application now uses a `config.json` file that loads into the GUI on startup
 python app.py
 ```
 
-**Features**:
-- **Auto-load**: Configuration values are automatically loaded into form fields on startup
-- **Manual save**: Click "Save Configuration" button to save changes to `config.json`
-- **Visual feedback**: See confirmation when configuration is saved successfully
+**Enhanced Features**:
+- **Auto-load Configuration**: Settings automatically populate from `config.json` on startup
+- **Integrated Folder Selection**: Select submissions folder with button positioned next to the path field
+- **Smart Authentication Flow**: 
+  - "Authorize App" button moved to top for better workflow
+  - Automatic credentials file detection
+  - Visual status indicators with colors and emojis
+  - Error messages when credentials are missing
+- **Manual Configuration Save**: Click "Save Configuration" to persist changes
+- **Real-time Feedback**: Visual confirmation of save operations and authentication status
 
 ### Command Line Interface
 
@@ -204,22 +215,181 @@ python uploader.py /path/to/submissions/folder
 5. **Start Row**: Row number where student data begins (usually 2 if row 1 has headers)
 6. **Google Drive Folder ID**: The ID of the destination folder (from the folder's URL)
 
-### File Organization
+### File Organization and Matching
 
-- Place all submission files in a local folder
-- Files should be named with student IDs that match your spreadsheet
-- Supported formats: PDF, DOCX, and other common document formats
-- Example naming: `816040296_A2.pdf`, `320053318_A2.pdf`
+**Supported File Formats**: PDF, DOCX, and other common document formats
+
+**File Matching Strategies**:
+1. **Primary**: Student ID matching from Moodle export format
+2. **Secondary**: First and last name matching when student ID fails
+
+**Moodle Export Naming Format**:
+```
+FirstName LastName_SubmissionID_assignsubmission_file_StudentID_COMP1600_A1.pdf
+```
+
+**Examples**:
+- `Aadam Seenath_1835025_assignsubmission_file_816050357_COMP1600_A1.pdf`
+- `Aaron Charran_1835097_assignsubmission_file_816049096_ COMP1600_A1.pdf`
+- `Billy Dee Williams_1834952_assignsubmission_file_816044707_COMP1600_A1.pdf`
+
+**Legacy Format Support**:
+The system also supports older naming conventions like:
+- `816040296_A2.pdf`
+- `320053318_A2.pdf`
+- `400014890.A2.pdf`
+
+**Smart Matching Algorithm**:
+1. **Primary**: Extract student ID from filename using regex patterns
+2. **Secondary**: When ID matching fails, extract and match names:
+   - Exact first name + last name match
+   - First name + partial last name match
+   - Normalized comparison (handles hyphens, spaces, case differences)
+3. **Conflict Prevention**: Skip files where target cells already contain links
+
+**Spreadsheet Requirements**:
+- **ID Column**: Contains student IDs (e.g., 816050357, 320053318)
+- **First Name Column**: Contains first names for name-based matching
+- **Last Name Column**: Contains last names for name-based matching
+- **Link Column**: Target column for submission file links (skipped if already populated)
 
 ## Building Executable
 
-To create a standalone executable:
+### Prerequisites for Building
 
+1. **Install PyInstaller**:
+   ```bash
+   pip install pyinstaller
+   ```
+
+2. **Ensure all dependencies are installed**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Building the GUI Application
+
+**Windows**:
 ```bash
-pyinstaller --onefile --windowed --add-data "credentials.json;." app.py
+pyinstaller --onefile --windowed --add-data "credentials.json;." --name "SubmissionUploader" app.py
 ```
 
-The executable will be created in the `dist/` folder and can be distributed without requiring Python installation.
+**Mac/Linux**:
+```bash
+pyinstaller --onefile --windowed --add-data "credentials.json:." --name "SubmissionUploader" app.py
+```
+
+### Building the CLI Application
+
+**Windows**:
+```bash
+pyinstaller --onefile --add-data "credentials.json;." --name "SubmissionUploaderCLI" uploader.py
+```
+
+**Mac/Linux**:
+```bash
+pyinstaller --onefile --add-data "credentials.json:." --name "SubmissionUploaderCLI" uploader.py
+```
+
+### Build Options Explained
+
+- `--onefile`: Creates a single executable file
+- `--windowed`: Suppresses console window (GUI only)
+- `--add-data`: Includes credentials.json in the build
+- `--name`: Sets the executable name
+
+### Advanced Build Configuration
+
+Create a `build.spec` file for more control:
+
+```python
+# -*- mode: python ; coding: utf-8 -*-
+
+block_cipher = None
+
+a = Analysis(
+    ['app.py'],
+    pathex=[],
+    binaries=[],
+    datas=[('credentials.json', '.')],
+    hiddenimports=[
+        'google.oauth2.credentials',
+        'google_auth_oauthlib.flow',
+        'googleapiclient.discovery',
+        'googleapiclient.http'
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='SubmissionUploader',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='icon.ico'  # Optional: add your own icon
+)
+```
+
+Then build with:
+```bash
+pyinstaller build.spec
+```
+
+### Distribution Package
+
+The built executable will be in the `dist/` folder. For distribution:
+
+1. **Include required files**:
+   - The executable
+   - `config.json` (template or pre-configured)
+   - Installation instructions
+
+2. **Create distribution folder**:
+   ```
+   SubmissionUploader_v1.0/
+   ├── SubmissionUploader.exe (or SubmissionUploader on Mac/Linux)
+   ├── config.json
+   ├── README.txt
+   └── credentials_setup_guide.txt
+   ```
+
+### Build Troubleshooting
+
+**Common Issues**:
+- **Missing modules**: Add to `hiddenimports` in spec file
+- **File not found errors**: Ensure all data files are included with `--add-data`
+- **Large executable size**: Consider using `--exclude-module` for unused packages
+- **Slow startup**: Use `--onedir` instead of `--onefile` for faster startup
+
+**Testing the Build**:
+1. Test the executable on a clean system without Python
+2. Verify all features work correctly
+3. Check that credentials.json is properly bundled
+4. Test both GUI and authentication flows
 
 ## Troubleshooting
 
@@ -231,18 +401,61 @@ The executable will be created in the `dist/` folder and can be distributed with
 
 ### Authentication Issues
 
-- **"No Token Found"**: 
-  - GUI: Click "Authorize App" to generate a new token
+- **❌ "No credentials.json file found"**: 
+  - Download credentials from Google Cloud Console
+  - Rename to `credentials.json` and place in project root
+  - "Authorize App" button will be disabled until credentials are found
+
+- **⚠️ "Token Status: No Token Found"**: 
+  - GUI: Click "Authorize App" button (now at the top)
   - CLI: Run `python cli_auth.py setup`
-- **"Token Expired"**: The app will attempt to refresh automatically, or re-authorize if needed
-- **"Authorization Failed"**: Check that `credentials.json` is present and valid
-- **CLI auth not working**: Ensure `config.json` exists before running `cli_auth.py`
+
+- **⚠️ "Token Status: Expired, Reauthorization Needed"**: 
+  - App will attempt automatic refresh
+  - If refresh fails, click "Authorize App" again
+
+- **❌ "Authorization Failed"**: 
+  - Verify `credentials.json` is valid JSON
+  - Check Google Cloud Console project settings
+  - Ensure OAuth consent screen is configured
+
+- **GUI shows red error messages**: 
+  - Red text indicates missing or invalid credentials
+  - Green text indicates successful authentication
+  - Orange text indicates warnings or expired tokens
 
 ### Upload Issues
 
-- **File matching problems**: Ensure submission filenames contain student IDs that match your spreadsheet
-- **Permission errors**: Verify that your Google account has access to the target Drive folder and Sheet
-- **API quota exceeded**: Google APIs have usage limits; wait and retry if needed
+- **File matching problems**: 
+  - Check that filenames follow Moodle export format or contain student IDs
+  - Verify first/last name columns are correctly configured for name-based matching
+  - Review upload log for specific matching failures
+
+- **"Link already exists, skipping..."**: 
+  - This is normal behavior - prevents overwriting existing submissions
+  - Files are automatically skipped if the target spreadsheet cell already has content
+
+- **Permission errors**: 
+  - Verify Google account has edit access to the target Drive folder and Sheet
+  - Check that OAuth scopes include both Drive and Sheets permissions
+
+- **API quota exceeded**: 
+  - Google APIs have usage limits; wait and retry if needed
+  - Consider smaller batch sizes for large numbers of files
+
+### UI and Configuration Issues
+
+- **Configuration not loading**: 
+  - Ensure `config.json` exists and is valid JSON
+  - Check file permissions in the project directory
+
+- **"Select Folder" button not working**: 
+  - Button is now positioned between the label and text field
+  - Selected folder automatically updates the submissions path configuration
+
+- **Settings not persisting**: 
+  - Click "Save Configuration" button after making changes
+  - Manual save prevents accidental overwrites during form editing
 
 ### CLI-Specific Issues
 
@@ -261,19 +474,34 @@ To find your Google Drive folder ID:
 
 ```
 Sub_Uploader/
-├── app.py              # Main GUI application (auto-syncs with config.json)
-├── uploader.py         # Command-line upload script (uses config.json)
-├── cli_auth.py         # CLI authentication helper tool
-├── config.json         # Main configuration file (auto-created/synced)
-├── config.sample.json  # Configuration template
-├── credentials.json    # Google OAuth credentials (required)
-├── token.json         # Generated auth token (auto-created)
-├── requirements.txt    # Python dependencies
-├── readme.md          # This file
-├── upload_summary.txt  # Upload report (generated)
-├── submissions/       # Example submissions folder
-└── build/            # Build artifacts
+├── app.py                 # Main GUI application with enhanced UI
+├── uploader.py           # CLI upload script with name matching
+├── cli_auth.py           # CLI authentication helper tool
+├── config.json           # Configuration file (auto-loads in GUI)
+├── credentials.json      # Google OAuth credentials (required)
+├── token.json           # Generated auth token (auto-created)
+├── requirements.txt     # Python dependencies
+├── readme.md           # Documentation (this file)
+├── upload_summary.txt  # Upload report (generated after each run)
+├── app.spec            # PyInstaller spec file (optional)
+├── submissions/        # Example submissions folder with Moodle exports
+│   ├── Aadam Seenath_1835025_assignsubmission_file_816050357_COMP1600_A1.pdf
+│   ├── Aaron Charran_1835097_assignsubmission_file_816049096_ COMP1600_A1.pdf
+│   └── ...
+├── build/              # PyInstaller build artifacts
+└── dist/               # Built executables
+    ├── SubmissionUploader.exe (Windows)
+    └── SubmissionUploaderCLI.exe
 ```
+
+### Key Files Explained
+
+- **app.py**: Enhanced GUI with improved authentication flow, smart folder selection, and visual feedback
+- **uploader.py**: CLI version with intelligent file matching (student ID + name fallback)
+- **config.json**: Unified configuration file that auto-loads in GUI and supports manual save
+- **credentials.json**: OAuth credentials from Google Cloud Console (must be added by user)
+- **token.json**: Auto-generated authentication token (keep secure)
+- **submissions/**: Contains student submission files from Moodle exports
 
 ## Security Notes
 
