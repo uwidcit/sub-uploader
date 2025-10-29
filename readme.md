@@ -159,6 +159,29 @@ The application now uses a `config.json` file that loads into the GUI on startup
 }
 ```
 
+### Group mappings (Grouped mode)
+
+To support course assignments where submissions are uploaded by one group member and should be recorded under a group name, the uploader can load a local CSV that maps members to group names. Add a `group_mappings` block to `config.json` pointing to your CSV and the column names to use:
+
+```json
+  "group_mappings": {
+    "file": "C:\\path\\to\\groups.csv",
+    "member_first_name_column": "First Name",
+    "member_last_name_column": "Last Name",
+    "group_name_column": "Group Name"
+  }
+```
+
+Notes:
+- The CSV must be readable from the path in `file` (absolute or relative to the project root).
+- The uploader looks for headers case-insensitively but you should provide the exact header names when possible. The expected headers are `First Name`, `Last Name`, and `Group Name`.
+- When grouped mode is enabled (the CSV loads successfully), the uploader will, for each filename, attempt the following in order:
+  1. Check `matches.csv` (pre-computed filename -> group matches)
+  2. Extract a student name from the filename and map the student to their group using the CSV
+  3. Fallback name extraction strategies (simple name parts)
+
+If a mapped group name is not present in the sheet ID column, the uploader will create a new row and write the group name into the ID column before writing the link.
+
 ## Usage
 
 ### GUI Application
@@ -200,6 +223,27 @@ python cli_auth.py help
 ```bash
 python uploader.py /path/to/submissions/folder
 ```
+
+Dry-run (no Google API calls)
+-----------------------------
+
+If you want to verify how files will be mapped before performing any uploads, use the dry-run flag. This maps filenames to groups/IDs using `matches.csv` and the optional `group_mappings` CSV, and writes a summary to `upload_summary.txt` without contacting Google APIs.
+
+```bash
+# Run a mapping-only dry-run and write results to upload_summary.txt
+python uploader.py --dry-run
+
+# Or provide a folder path and dry-run in one command
+python uploader.py --dry-run "C:\\path\\to\\submissions"
+```
+
+The dry-run summary includes:
+- total files scanned
+- files that would be mapped (filename -> group/ID and match method)
+- files with no mapping (skipped)
+
+Check `upload_summary.txt` in the project root after the dry-run completes.
+
 
 **Prerequisites for CLI**:
 1. `config.json` must exist with your settings

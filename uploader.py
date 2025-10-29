@@ -67,49 +67,65 @@ def load_config(config_file='config.json'):
         print(f"Invalid JSON in configuration file '{config_file}'.")
         sys.exit(1)
 
-def load_groups_from_csv(groups_file='groups.csv'):
-    """Load student to group mappings from CSV file."""
+def load_groups_from_csv(groups_file='groups.csv', mapping=None):
+    """Load student to group mappings from CSV file.
+
+    mapping: dict with keys 'member_first_name_column', 'member_last_name_column', 'group_name_column'
+    """
     groups = {}
     if not os.path.exists(groups_file):
         return groups
-    
+
     try:
         with open(groups_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+
+            # Determine the header names to use (case-insensitive match)
+            headers = reader.fieldnames or []
+
+            def find_header(expected):
+                if not expected:
+                    return None
+                for h in headers:
+                    if h and h.lower() == expected.lower():
+                        return h
+                return None
+
+            first_col = None
+            last_col = None
+            group_col = None
+            if mapping:
+                first_col = find_header(mapping.get('member_first_name_column', 'First Name'))
+                last_col = find_header(mapping.get('member_last_name_column', 'Last Name'))
+                group_col = find_header(mapping.get('group_name_column', 'Group Name'))
+
+            # Fallbacks if headers not found
+            if not first_col:
+                first_col = find_header('First Name') or find_header('First name') or find_header('first_name')
+            if not last_col:
+                last_col = find_header('Last Name') or find_header('Last name') or find_header('last_name')
+            if not group_col:
+                group_col = find_header('Group Name') or find_header('Group') or find_header('group_name')
+
             for row in reader:
-                # Handle new format: First name, Last name, Group Name
-                first_name = row.get('First name', '').strip()
-                last_name = row.get('Last name', '').strip()
-                group_name = row.get('Group Name', '').strip()
-                
-                # Handle space in column name
+                first_name = (row.get(first_col, '') if first_col else '').strip()
+                last_name = (row.get(last_col, '') if last_col else '').strip()
+                group_name = (row.get(group_col, '') if group_col else '').strip()
+
+                # Filter out empty rows
                 if not group_name:
-                    group_name = row.get(' Group Name', '').strip()
-                
-                # Try alternative column names if primary ones don't exist
-                if not first_name:
-                    first_name = row.get('first_name', '').strip()
-                if not last_name:
-                    last_name = row.get('last_name', '').strip()
-                if not group_name:
-                    group_name = row.get('group_name', '').strip()
-                    if not group_name:
-                        group_name = row.get('group', '').strip()
-                
-                # Handle [] as a valid group name, but filter out truly empty values
-                if (first_name or last_name) and group_name and group_name not in ['', ' ']:
-                    # Create full name for matching
-                    full_name = f"{first_name} {last_name}".strip()
+                    continue
+
+                # Create full name for matching
+                full_name = f"{first_name} {last_name}".strip()
+                if full_name:
                     groups[full_name.lower()] = group_name
-                    
-                    # Also store first name only for partial matching
-                    if first_name:
-                        groups[first_name.lower()] = group_name
-                    
-                    # Also store last name only for partial matching
-                    if last_name:
-                        groups[last_name.lower()] = group_name
-                    
+
+                if first_name:
+                    groups[first_name.lower()] = group_name
+                if last_name:
+                    groups[last_name.lower()] = group_name
+
         print(f"Loaded {len(set(groups.values()))} unique groups for {len(groups)} name variations from {groups_file}")
         return groups
     except Exception as e:
@@ -140,11 +156,103 @@ def load_matches_from_csv(matches_file='matches.csv'):
         print(f"Error loading matches file: {e}")
         return {}
 
+def parse_args():
+    """Parse command-line args for dry-run and optional folder path."""
+    dry_run = False
+    folder_arg = None
+    args = sys.argv[1:]
+    for a in args:
+        if a in ('--dry-run', '-n'):
+            dry_run = True
+        elif not a.startswith('-') and not folder_arg:
+            folder_arg = a
+    return dry_run, folder_arg
+
+def perform_dry_run(folder_path, groups_data, filename_matches):
+    """Perform a mapping-only dry run without Google API calls.
+
+    Writes a summary file similar to the upload summary but does not upload or touch Google Sheets/Drive.
+    """
+    total_files_in_directory = len([f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))])
+    mapped = []
+    skipped = []
+
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        if not os.path.isfile(file_path):
+            continue
+
+        first_name, last_name = extract_names(filename)
+        file_id = extract_student_id(filename)
+
+        matched_group = None
+        match_method = None
+
+        # Try precomputed filename matches first
+        if filename in filename_matches:
+            matched_group = filename_matches[filename]
+            match_method = 'matches.csv'
+
+        # Then try groups mapping if enabled
+        if not matched_group and groups_data:
+            if first_name:
+                full = f"{first_name} {last_name or ''}".strip()
+                matched_group = find_group_by_student_name(full, groups_data)
+                if matched_group:
+                    match_method = 'group_mappings (full name)'
+
+            if not matched_group:
+                simple = extract_student_name_from_filename(filename)
+                if simple:
+                    matched_group = find_group_by_student_name(simple, groups_data)
+                    if matched_group:
+                        match_method = 'group_mappings (simple name)'
+
+        if matched_group:
+            mapped.append((filename, matched_group, match_method, file_id))
+        else:
+            skipped.append((filename, file_id))
+
+    # Write dry-run summary
+    with open(SUMMARY_FILE, 'w', encoding='utf-8') as report:
+        report.write("Upload Dry Run Summary (no Google API calls)\n")
+        report.write("-----------------------------------------\n\n")
+        report.write(f"Folder path: {folder_path}\n")
+        report.write(f"Date: {datetime.datetime.now()}\n\n")
+        report.write(f"Total files in directory: {total_files_in_directory}\n")
+        report.write(f"Files that would be mapped: {len(mapped)}\n")
+        report.write(f"Files with no mapping: {len(skipped)}\n\n")
+
+        if mapped:
+            report.write("Files -> Group Mapping:\n")
+            report.write("-----------------------\n")
+            for fn, grp, method, fid in mapped:
+                safe_fn = fn.encode('ascii', 'replace').decode('ascii')
+                report.write(f"{safe_fn} => {grp} (method: {method}, id: {fid})\n")
+            report.write("\n")
+
+        if skipped:
+            report.write("Files skipped (no mapping):\n")
+            report.write("-------------------------\n")
+            for fn, fid in skipped:
+                safe_fn = fn.encode('ascii', 'replace').decode('ascii')
+                report.write(f"{safe_fn} (id: {fid})\n")
+
+    print(f"Dry run complete. Summary written to {SUMMARY_FILE}")
+
 # Load configuration
 config = load_config()
 
-# Check for group mode
-groups_data = load_groups_from_csv()
+# Parse CLI args (supports '--dry-run' or '-n' and optional folder path)
+DRY_RUN, arg_folder = parse_args()
+
+# Extract folder path (CLI arg beats config)
+FOLDER_ARG = arg_folder
+
+# Load group mappings according to config
+group_mapping_cfg = config.get('group_mappings', {})
+groups_file = group_mapping_cfg.get('file', 'groups.csv')
+groups_data = load_groups_from_csv(groups_file, mapping=group_mapping_cfg)
 GROUP_MODE = len(groups_data) > 0
 
 # Load pre-computed matches
@@ -153,7 +261,8 @@ filename_matches = load_matches_from_csv()
 print(f"Group mode: {'ENABLED' if GROUP_MODE else 'DISABLED'}")
 
 # Extract configuration values
-FOLDER_PATH = sys.argv[1] if len(sys.argv) > 1 else config['submissions']['folder_path']
+# Folder path may be provided as CLI arg (positional) or via config; CLI arg parsed into FOLDER_ARG
+FOLDER_PATH = FOLDER_ARG if FOLDER_ARG else config['submissions']['folder_path']
 SHEET_ID = config['google_sheets']['sheet_id']
 SHEET_NAME = config['google_sheets']['sheet_name']
 ID_COLUMN = config['google_sheets']['id_column']
@@ -355,6 +464,12 @@ def main():
         print("Please provide a valid folder path as an argument or update config.json.")
         sys.exit(1)
 
+    # If dry-run, perform mapping only and exit (no Google API calls)
+    if DRY_RUN:
+        print("Running in dry-run mode: no Google API calls will be made.")
+        perform_dry_run(FOLDER_PATH, groups_data, filename_matches)
+        return
+
     # Authentication and service setup
     creds = None
     if os.path.exists(TOKEN_FILE):
@@ -425,36 +540,53 @@ def main():
             group_name_to_write = None
             
             if GROUP_MODE:
-                # In group mode, use matches.csv to find the matched group name
+                # In group mode, prefer precomputed filename matches, otherwise try member->group mapping
+                matched_group = None
+
                 if filename in filename_matches:
                     matched_group = filename_matches[filename]
+                    match_source = 'CSV'
+                else:
+                    # Try to extract member name from filename and map to group using groups_data
+                    fn_first, fn_last = extract_names(filename)
+                    if fn_first:
+                        full = f"{fn_first} {fn_last or ''}".strip()
+                        matched_group = find_group_by_student_name(full, groups_data)
+
+                    # Fallback: attempt a simpler student name extraction
+                    if not matched_group:
+                        simple_name = extract_student_name_from_filename(filename)
+                        if simple_name:
+                            matched_group = find_group_by_student_name(simple_name, groups_data)
+
+                    match_source = 'group_mappings' if matched_group else None
+
+                if matched_group:
                     try:
                         # Find the row where the ID column matches the group name
                         row_index = ids.index(matched_group)
-                        match_method = f"group mode CSV match: {matched_group}"
+                        match_method = f"group mode {match_source} match: {matched_group}"
                         group_name_to_write = None  # Don't overwrite existing group name
                     except ValueError:
-                        # Group name from matches.csv not found in ID column - create new row
-                        # Find the first empty row (where ID column is empty)
+                        # Group name not found in ID column - create new row
                         for i, id_entry in enumerate(ids):
                             if not id_entry or id_entry.strip() == "":
                                 row_index = i
                                 match_method = f"group mode new row: {matched_group}"
                                 group_name_to_write = matched_group
-                                # Update the ids list to mark this row as occupied
                                 ids[i] = matched_group
                                 print(f"Creating new row for group '{matched_group}' at row {i + START_ROW}")
                                 break
-                        
+
                         if row_index is None:
                             # No empty rows found, extend the list
                             row_index = len(ids)
-                            ids.append(matched_group)  # Add the group name to extend the list
+                            ids.append(matched_group)
                             match_method = f"group mode extended row: {matched_group}"
                             group_name_to_write = matched_group
                             print(f"Extending spreadsheet for group '{matched_group}' at row {row_index + START_ROW}")
                 else:
-                    print(f"No match found in matches.csv for: {safe_filename}")
+                    print(f"No match found in matches.csv or group mappings for: {safe_filename}")
             else:
                 # Standard mode matching
                 # First check pre-computed matches from CSV
